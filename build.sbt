@@ -3,7 +3,12 @@ import sbt.Keys._
 val commonSettings = Seq(
   organization := "com.softwaremill.blog.tech",
   version := "0.1-SNAPSHOT",
-  scalaVersion := "2.11.11"
+  scalaVersion := "2.11.11",
+  libraryDependencies ++= Seq(
+    // Common
+    "ch.qos.logback"                    % "logback-classic"                     % "1.1.7",
+    "com.typesafe.scala-logging"        %% "scala-logging"                      % "3.5.0"
+  )
 )
 
 lazy val root = (project in file("."))
