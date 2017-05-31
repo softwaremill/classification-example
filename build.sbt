@@ -45,3 +45,8 @@ lazy val spark = (project in file("spark"))
   .settings(
     name := "classification-spark"
   )
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.apache.spark" %% "spark-core" % "2.1.1"
+    )
+  )
