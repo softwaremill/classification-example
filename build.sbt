@@ -18,6 +18,12 @@ lazy val root = (project in file("."))
   )
   .aggregate(elasticsearch, spark)
 
+lazy val common = (project in file("common"))
+  .settings(commonSettings)
+  .settings(
+    name := "common"
+  )
+
 lazy val elasticsearch = (project in file("elasticsearch"))
   .settings(commonSettings)
   .settings(
@@ -39,6 +45,7 @@ lazy val elasticsearch = (project in file("elasticsearch"))
       )
     }
   )
+  .dependsOn(LocalProject("common"))
 
 lazy val spark = (project in file("spark"))
   .settings(commonSettings)
@@ -50,3 +57,4 @@ lazy val spark = (project in file("spark"))
       "org.apache.spark" %% "spark-core" % "2.1.1"
     )
   )
+  .dependsOn(LocalProject("common"))
