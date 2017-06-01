@@ -47,6 +47,8 @@ lazy val elasticsearch = (project in file("elasticsearch"))
   )
   .dependsOn(LocalProject("common"))
 
+val sparkVersion = "2.1.1"
+
 lazy val spark = (project in file("spark"))
   .settings(commonSettings)
   .settings(
@@ -54,7 +56,8 @@ lazy val spark = (project in file("spark"))
   )
   .settings(
     libraryDependencies ++= Seq(
-      "org.apache.spark" %% "spark-core" % "2.1.1"
+      "org.apache.spark" %% "spark-core" % sparkVersion,
+      "org.apache.spark" %% "spark-sql" % sparkVersion
     )
   )
   .dependsOn(LocalProject("common"))
