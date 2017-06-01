@@ -32,7 +32,7 @@ trait StandaloneElasticServer extends StrictLogging {
 
   private lazy val settings = Settings.builder().put("path.home", elasticHome.toAbsolutePath)
   private lazy val node = NodeBuilder.nodeBuilder().settings(settings).node()
-  protected lazy val client = ElasticClient.fromClient(node.client())
+  lazy val client: ElasticClient = ElasticClient.fromClient(node.client())
 
   def start(): Unit = {
     node.start()
@@ -138,18 +138,23 @@ trait StandaloneElasticServerWithData extends StandaloneElasticServer {
 
 }
 
-
-class BlogpostsElasticServer(val port: Int) extends StandaloneElasticServerWithData {
-  override protected val indexName = "abstracts"
-  override protected val indexType = "abstract"
-  override protected val mapping = AbstractsIndex.Mapping
-  override protected val customAnalyzers = Nil
-  override protected val dataJsonFilePath = "/data/abstracts.json"
-}
-
 trait ElasticServerRunner extends StrictLogging {
 
   def elasticServer: StandaloneElasticServer
+
+  def performActions(client: ElasticClient): Unit = ()
+
+  def main(args: Array[String]): Unit = {
+    start() match {
+      case Success(_) =>
+        println(s"\n\n\nStandalone Elasticsearch node started.\n\n\n")
+        performActions(elasticServer.client)
+        println(s"\n\n\nPress [ENTER] to stop.\n\n\n")
+        StdIn.readLine()
+        stop()
+      case _ => stop() // Do nothing
+    }
+  }
 
   def start(): Try[Unit] = {
     val res = Try {
@@ -180,25 +185,4 @@ trait ElasticServerRunner extends StrictLogging {
     }
   }
 
-}
-
-object AbstractsElasticRunner extends ElasticServerRunner {
-  override def elasticServer: StandaloneElasticServer = new BlogpostsElasticServer(9200)
-
-  def main(args: Array[String]): Unit = {
-    start() match {
-      case Success(_) =>
-        println(s"\n\n\nStandalone Elasticsearch node started.\nPress [ENTER] to stop.\n\n\n")
-        StdIn.readLine()
-        stop()
-      case _ => stop() // Do nothing
-    }
-  }
-}
-
-object AbstractsIndex {
-  val Mapping: MappingDefinition = mapping("abstract") fields(
-    stringField("label"),
-    stringField("text")
-  )
 }
