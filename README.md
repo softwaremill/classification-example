@@ -1,0 +1,1 @@
+For stemming to work, download English model .jar from [https://stanfordnlp.github.io/CoreNLP/download.html] and put it into spark/lib directory. 
