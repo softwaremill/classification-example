@@ -32,15 +32,13 @@ object SimpleClassification {
     val tok2 = new RegexTokenizer().setPattern("\\W").setInputCol("stemmedAsString").setOutputCol("stemmed")
     val hashing = new HashingTF().setInputCol("stemmed").setOutputCol("features")
     val si = new StringIndexer().setInputCol("category").setOutputCol("categoryNum")
+    val nb = new NaiveBayes().setLabelCol("categoryNum").setFeaturesCol("features").setPredictionCol("predicted").setProbabilityCol("probability")
 
-    val pipeline = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si))
-    val ready = pipeline.fit(data).transform(data)
+    val pipeline = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si, nb))
 
-    ready.show(false)
-
-    val results = for(i <- 1 to 10) yield {
+    val results = for(i <- 1 to 30) yield {
       println(i)
-      trainAndPredict(ready)
+      trainAndPredict(data, pipeline)
     }
 
     val average = results.sum / results.size
@@ -50,17 +48,13 @@ object SimpleClassification {
     session.stop()
   }
 
-  def trainAndPredict(data: DataFrame) = {
+  def trainAndPredict(data: DataFrame, pipeline: Pipeline) = {
     val Array(train, test) = data.randomSplit(Array(0.8, 0.2))
 
-    val nb = new NaiveBayes().setLabelCol("categoryNum").setFeaturesCol("features")
-    val predictor = nb.fit(train).setFeaturesCol("features").setPredictionCol("predicted").setProbabilityCol("probability")
-
-    val predicted = predictor.transform(test)
-    predicted.show()
+    val result = pipeline.fit(train).transform(test)
 
     val evaluator = new MulticlassClassificationEvaluator().setLabelCol("categoryNum").setPredictionCol("predicted")
-    evaluator.evaluate(predicted)
+    evaluator.evaluate(result)
   }
 }
 
