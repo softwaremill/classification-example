@@ -1,14 +1,14 @@
 package com.softwaremill.blog.tech.classification.spark
 
+import org.apache.spark.ml.UnaryTransformer
 import org.apache.spark.ml.classification.NaiveBayes
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature._
-import org.apache.spark.mllib.feature.Stemmer
-import org.apache.spark.sql.catalyst.expressions.{GenericInternalRow, GenericRow}
-import org.apache.spark.sql.functions.{col, udf}
-import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
+import org.apache.spark.ml.util.Identifiable
+import org.apache.spark.sql._
+import org.apache.spark.sql.types.{DataType, StringType}
 
-import scala.collection.mutable
+import scala.collection.convert.Wrappers.JListWrapper
 
 object SimpleClassification {
 
@@ -18,42 +18,37 @@ object SimpleClassification {
       .appName("spark session example")
       .getOrCreate()
 
-    val r = session.read.option("delimiter", ";").csv("common/src/main/resources/data/abstracts.csv")
-    r.foreach { r =>
+    val data = session.read.option("delimiter", ";").csv("common/src/main/resources/data/abstracts.csv")
+    data.foreach { r =>
       // Dirty sanity check
       if (r.size > 3) throw new RuntimeException("Row longer than 3")
     }
 
     // Concat title and description
     val concat = new SQLTransformer().setStatement("SELECT _c0 AS category, concat(_c1, ' ', _c2) AS titleAndDesc FROM __THIS__")
-    val concatenated = concat.transform(r)
+    val concatenated = concat.transform(data)
 
-    // Filter non-words from the column
-//    val rt = new RegexTokenizer().setInputCol("stemmed").setOutputCol("words").setPattern("\\W")
+    val tokenized = new RegexTokenizer().setPattern("\\W").setInputCol("titleAndDesc").setOutputCol("titleAndDescTokenized")
+      .transform(concatenated)
 
-    val filterNonWords = udf { text: String =>
-      text.split("\\W").mkString(" ")
-    }
-    val filtered = concatenated.select(
-      col("category"),
-      col("titleAndDesc"),
-      filterNonWords(col("titleAndDesc")).as("filteredTitleAndDesc")
-    )
+    val stopWordsRemover = new StopWordsRemover().setInputCol("titleAndDescTokenized").setOutputCol("tokensWithoutStopwords")
+    val noStopWordsFromInitial = stopWordsRemover.transform(tokenized)
 
-    val stemmed = filtered.select(
-      new Column("category"),
-      new Column("titleAndDesc"),
-      com.databricks.spark.corenlp.functions.lemma.apply(new Column("filteredTitleAndDesc")).as("stemmed"))
+    val stem = new Stemmer().setInputCol("tokensWithoutStopwords").setOutputCol("stemmedAsString")
+    val stemmed = stem.transform(noStopWordsFromInitial)
 
-    val stopWordsRemover = new StopWordsRemover().setInputCol("stemmed").setOutputCol("filtered")
-    val noStopWords = stopWordsRemover.transform(stemmed)
+    val tok2 = new RegexTokenizer().setPattern("\\W").setInputCol("stemmedAsString").setOutputCol("stemmed")
+    val stemmedTokenized = tok2.transform(stemmed)
 
-    val hashing = new HashingTF().setInputCol("filtered").setOutputCol("features")
-    val hashed = hashing.transform(noStopWords)
+
+    val hashing = new HashingTF().setInputCol("stemmed").setOutputCol("features")
+    val hashed = hashing.transform(stemmedTokenized)
 
     val si = new StringIndexer().setInputCol("category").setOutputCol("categoryNum")
     val indexedCategory = si.fit(hashed).transform(hashed)
 
+//    new Pipeline().setStages(Array(concat, filterNonWords))
+//
     val results = for(i <- 1 to 10) yield {
       println(i)
       trainAndPredict(indexedCategory)
@@ -78,4 +73,16 @@ object SimpleClassification {
     val evaluator = new MulticlassClassificationEvaluator().setLabelCol("categoryNum").setPredictionCol("predicted")
     evaluator.evaluate(predicted)
   }
+}
+
+class Stemmer(override val uid: String) extends UnaryTransformer[Seq[String], String, Stemmer] {
+
+  def this() = this(Identifiable.randomUID("stemming"))
+
+  override protected def createTransformFunc: (Seq[String]) => String = { input =>
+    val f = com.databricks.spark.corenlp.functions.lemma.f.asInstanceOf[String => JListWrapper[String]]
+    f(input.mkString(" ")).mkString(" ")
+  }
+
+  override protected def outputDataType: DataType = StringType
 }
