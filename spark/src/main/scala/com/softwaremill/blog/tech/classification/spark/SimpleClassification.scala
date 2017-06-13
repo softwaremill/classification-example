@@ -1,6 +1,6 @@
 package com.softwaremill.blog.tech.classification.spark
 
-import org.apache.spark.ml.UnaryTransformer
+import org.apache.spark.ml.{Pipeline, UnaryTransformer}
 import org.apache.spark.ml.classification.NaiveBayes
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature._
@@ -26,32 +26,21 @@ object SimpleClassification {
 
     // Concat title and description
     val concat = new SQLTransformer().setStatement("SELECT _c0 AS category, concat(_c1, ' ', _c2) AS titleAndDesc FROM __THIS__")
-    val concatenated = concat.transform(data)
-
-    val tokenized = new RegexTokenizer().setPattern("\\W").setInputCol("titleAndDesc").setOutputCol("titleAndDescTokenized")
-      .transform(concatenated)
-
+    val tokenizer = new RegexTokenizer().setPattern("\\W").setInputCol("titleAndDesc").setOutputCol("titleAndDescTokenized")
     val stopWordsRemover = new StopWordsRemover().setInputCol("titleAndDescTokenized").setOutputCol("tokensWithoutStopwords")
-    val noStopWordsFromInitial = stopWordsRemover.transform(tokenized)
-
     val stem = new Stemmer().setInputCol("tokensWithoutStopwords").setOutputCol("stemmedAsString")
-    val stemmed = stem.transform(noStopWordsFromInitial)
-
     val tok2 = new RegexTokenizer().setPattern("\\W").setInputCol("stemmedAsString").setOutputCol("stemmed")
-    val stemmedTokenized = tok2.transform(stemmed)
-
-
     val hashing = new HashingTF().setInputCol("stemmed").setOutputCol("features")
-    val hashed = hashing.transform(stemmedTokenized)
-
     val si = new StringIndexer().setInputCol("category").setOutputCol("categoryNum")
-    val indexedCategory = si.fit(hashed).transform(hashed)
 
-//    new Pipeline().setStages(Array(concat, filterNonWords))
-//
+    val pipeline = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si))
+    val ready = pipeline.fit(data).transform(data)
+
+    ready.show(false)
+
     val results = for(i <- 1 to 10) yield {
       println(i)
-      trainAndPredict(indexedCategory)
+      trainAndPredict(ready)
     }
 
     val average = results.sum / results.size
