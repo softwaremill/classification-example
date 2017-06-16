@@ -1,8 +1,7 @@
 package com.softwaremill.blog.tech.classification.spark
 
 import org.apache.spark.ml.{Pipeline, UnaryTransformer}
-import org.apache.spark.ml.classification.{DecisionTreeClassifier, LogisticRegression, NaiveBayes, RandomForestClassifier}
-import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import org.apache.spark.ml.classification.{DecisionTreeClassifier, LogisticRegression, NaiveBayes}
 import org.apache.spark.ml.feature._
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.sql._
@@ -43,40 +42,38 @@ object SimpleClassification {
     val decisionTree = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si, dtc))
 //    val forest = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si, rfc))
 
-    evaluatePipeline(bayes, data)
-    evaluatePipeline(regression, data)
-    evaluatePipeline(decisionTree, data)
-//    evaluatePipeline(forest, data)
+    evaluatePipelines(data, bayes, regression, decisionTree)
 
     session.stop()
   }
 
-  def evaluatePipeline(pipeline: Pipeline, data: DataFrame) = {
-    val pipelineName = pipeline.getStages.last.uid
-    println(s"Pipeline: $pipelineName")
+  def evaluatePipelines(data: DataFrame, pipelines: Pipeline*) = {
 
-    val results = for(i <- 1 to 10) yield {
-      trainAndPredict(data, pipeline)
+    val testsForPipelines = for(i <- 1 to 10) yield {
+      val Array(train, test) = data.randomSplit(Array(0.8, 0.2))
+      trainAndPredict(train, test, pipelines)
     }
 
-    val average = results.sum / results.size
-    val meanSquareError = results.map(d => d * d).sum / results.size
-    println(s"Results for $pipelineName: average: $average, mean square error: $meanSquareError")
+    val mapped = testsForPipelines.flatten.groupBy(_._1).mapValues(_.map(_._2))
+    println(mapped)
+
+    val averaged = mapped.mapValues(r => (r.sum / r.size, r.map(d => d * d).sum / r.size))
+    averaged.foreach { p =>
+      println(s"Results for ${p._1}: average: ${p._2._1}, mean square error: ${p._2._2}")
+    }
   }
 
-  def trainAndPredict(data: DataFrame, pipeline: Pipeline) = {
-    val Array(train, test) = data.randomSplit(Array(0.8, 0.2))
+  def trainAndPredict(train: DataFrame, test: DataFrame, pipelines: Seq[Pipeline]): Seq[(String, Double)] = {
+    for(p <- pipelines) yield {
+      val result = p.fit(train).transform(test)
 
-    val result = pipeline.fit(train).transform(test)
+      val hit = new SQLTransformer().setStatement("SELECT categoryNum, predicted FROM __THIS__ WHERE categoryNum == predicted").transform(result)
+      val miss = new SQLTransformer().setStatement("SELECT categoryNum, predicted FROM __THIS__ WHERE categoryNum != predicted").transform(result)
 
-//    result.show(false)
+      val correctenss = hit.count().toDouble / (hit.count() + miss.count())
 
-    val evaluator = new MulticlassClassificationEvaluator().setLabelCol("categoryNum").setPredictionCol("predicted")
-    val evaluation = evaluator.evaluate(result)
-
-//    println(s"Evaluated: $evaluation")
-
-    evaluation
+      (p.getStages.last.uid, correctenss)
+    }
   }
 }
 
