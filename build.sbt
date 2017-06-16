@@ -52,7 +52,9 @@ val sparkVersion = "2.1.1"
 lazy val spark = (project in file("spark"))
   .settings(commonSettings)
   .settings(
-    name := "classification-spark"
+    name := "classification-spark",
+    javaOptions += "-Xmx4096m",
+    fork in run := true
   )
   .settings(
     resolvers += "MVN Repository (for spark-stemming)" at "https://dl.bintray.com/spark-packages/maven",
@@ -65,5 +67,4 @@ lazy val spark = (project in file("spark"))
       "databricks" % "spark-corenlp" % "0.2.0-s_2.11"
     )
   )
-  .dependsOn(LocalProject("common"))
   .dependsOn(LocalProject("common"))
