@@ -1,5 +1,6 @@
 package com.softwaremill.blog.tech.classification.spark
 
+import com.softwaremill.blog.tech.classification.RandomClassification
 import org.apache.spark.ml.{Pipeline, UnaryTransformer}
 import org.apache.spark.ml.classification.{DecisionTreeClassifier, LogisticRegression, NaiveBayes}
 import org.apache.spark.ml.feature._
@@ -42,29 +43,37 @@ object SimpleClassification {
     val decisionTree = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si, dtc))
 //    val forest = new Pipeline().setStages(Array(concat, tokenizer, stopWordsRemover, stem, tok2, hashing, si, rfc))
 
-    evaluatePipelines(data, bayes, regression, decisionTree)
+    evaluatePipelines(data, session, bayes, regression, decisionTree)
 
     session.stop()
   }
 
-  def evaluatePipelines(data: DataFrame, pipelines: Pipeline*) = {
+  def evaluatePipelines(data: DataFrame, session: SparkSession, pipelines: Pipeline*) = {
 
-    val testsForPipelines = for(i <- 1 to 10) yield {
+    val testsForPipelines = (for(i <- 1 to 50) yield {
+      println(s"Iteration $i")
       val Array(train, test) = data.randomSplit(Array(0.8, 0.2))
-      trainAndPredict(train, test, pipelines)
-    }
+      trainAndPredict(train, test, pipelines, session)
+    }).flatten
 
-    val mapped = testsForPipelines.flatten.groupBy(_._1).mapValues(_.map(_._2))
+    val mapped = testsForPipelines.groupBy(_._1).mapValues(_.map(_._2))
     println(mapped)
 
-    val averaged = mapped.mapValues(r => (r.sum / r.size, r.map(d => d * d).sum / r.size))
+    val averaged = mapped.mapValues { correctnessSeq =>
+      val averageCorrectness = correctnessSeq.sum / correctnessSeq.size
+      val sqrDeviationFromAverage = correctnessSeq.map(c => Math.pow(c - averageCorrectness, 2))
+      val meanDevFromAverage = sqrDeviationFromAverage.sum / sqrDeviationFromAverage.size
+      (averageCorrectness, meanDevFromAverage)
+    }
+
     averaged.foreach { p =>
-      println(s"Results for ${p._1}: average: ${p._2._1}, mean square error: ${p._2._2}")
+      println(s"Results for ${p._1}: average: ${p._2._1}, mean square deviation from average: ${p._2._2}")
     }
   }
 
-  def trainAndPredict(train: DataFrame, test: DataFrame, pipelines: Seq[Pipeline]): Seq[(String, Double)] = {
-    for(p <- pipelines) yield {
+  def trainAndPredict(train: DataFrame, test: DataFrame, pipelines: Seq[Pipeline], session: SparkSession): Seq[(String, Double)] = {
+    val correctnessPerPipeline = for(p <- pipelines) yield {
+      println(s"Running pipeline ${p.getStages.last.uid}")
       val result = p.fit(train).transform(test)
 
       val hit = new SQLTransformer().setStatement("SELECT categoryNum, predicted FROM __THIS__ WHERE categoryNum == predicted").transform(result)
@@ -72,8 +81,25 @@ object SimpleClassification {
 
       val correctenss = hit.count().toDouble / (hit.count() + miss.count())
 
+      println(s"Correctness: $correctenss")
+
       (p.getStages.last.uid, correctenss)
     }
+
+    val randomCorrectness = randomClassificationCorrectness(test, session)
+
+    correctnessPerPipeline :+ ("random", randomCorrectness)
+  }
+
+  def randomClassificationCorrectness(test: DataFrame, session: SparkSession) = {
+    import session.implicits._
+    import scala.collection.JavaConverters._
+
+    val categories = test.map(r => r.getAs[String]("_c0")).toLocalIterator().asScala
+    val g = RandomClassification.guess(categories.toIterable)
+    val (category, random) = g.unzip
+
+    RandomClassification.calculateCorrectness(category, random)
   }
 }
 
